@@ -386,7 +386,7 @@ def select_history_samples_by_miss_labels(labeled_kind1, labeled_kind, budget, n
     Select historical samples to cover missing labels.
     Older samples get priority; selected samples are moved to the end of labeled_kind.
     """
-    n_reap = 5
+    n_reap = budget
 
     all_labels = set(range(n_class))
     current_labels = set(labeled_kind1.values())
@@ -673,4 +673,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
