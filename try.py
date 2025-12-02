@@ -117,6 +117,14 @@ def predict_GCN(model, data, unlbl_ids):
     return gcn_results, gcn_conf_results
 
 
+def add_feature_noise(x, noise_std=0.01):
+    """Add small Gaussian noise to the features (with adjustable perturbation intensity)"""
+    if noise_std <= 0:
+        return x
+    noise = torch.randn_like(x) * noise_std
+    return x + noise
+
+
 def train_model_semi_sup(X, y, un_X, un_y, model, epochs=50, optimizer=None):
     """
     Semi-supervised training: supervised CE on labeled data + KL loss on selected pseudo-labels.
@@ -153,6 +161,8 @@ def train_model_semi_sup(X, y, un_X, un_y, model, epochs=50, optimizer=None):
                     continue
                 predictions = model(batch_X)
                 loss_labeled = criterion_CE(predictions, batch_y)
+                batch_un_X_noisy = add_feature_noise(batch_un_X, noise_std=0.01)
+                # predictions_un = model(batch_un_X_noisy)
                 predictions_un = model(batch_un_X)
                 smoothed_un_labels = label_smoothing(batch_un_y, epsilon=0.1)
                 loss_unlabeled = criterion_KL(F.log_softmax(predictions_un, dim=1), smoothed_un_labels)
@@ -675,3 +685,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
