@@ -153,22 +153,22 @@ def train_model_semi_sup(X, y, un_X, un_y, model, epochs=50, optimizer=None):
     model.train()
     for epoch in range(epochs):
 
-        if has_unlabeled:
-        un_iter = iter(dataloader_unlabeled)
+        # if has_unlabeled:
+        # un_iter = iter(dataloader_unlabeled)
         
         for (batch_X, batch_y) in dataloader_labeled:
             optimizer.zero_grad()
             if has_unlabeled:
                 try:
-                    # batch_un_X, batch_un_y = next(iter(dataloader_unlabeled))
-                    batch_un_X, batch_un_y = next(un_iter)
+                    batch_un_X, batch_un_y = next(iter(dataloader_unlabeled))
+                    # batch_un_X, batch_un_y = next(un_iter)
                 except StopIteration:
-                    # continue
-                    un_iter = iter(dataloader_unlabeled)
-                    batch_un_X, batch_un_y = next(un_iter)
+                    continue
+                    # un_iter = iter(dataloader_unlabeled)
+                    # batch_un_X, batch_un_y = next(un_iter)
                 predictions = model(batch_X)
                 loss_labeled = criterion_CE(predictions, batch_y)
-                batch_un_X_noisy = add_feature_noise(batch_un_X, noise_std=0.01)
+                # batch_un_X_noisy = add_feature_noise(batch_un_X, noise_std=0.01)
                 # predictions_un = model(batch_un_X_noisy)
                 predictions_un = model(batch_un_X)
                 # loss_unlabeled = criterion_CE(predictions_un, batch_un_y)
@@ -693,5 +693,6 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
