@@ -43,7 +43,7 @@ pattern mining in a single large graph. Proceedings of the VLDB Endowment 7(7), 
 528 (2014)
 
 Because the original data are large, the dataset files are provided via external download links.
-Download link (xxx):
+Download link (https://pan.baidu.com/s/1escsFRnAUqtFyRWsAxwZlg?pwd=8ib6):
 
 
 > Note: The datasets provided are public datasets; the uploaded archive contains our version of the dataset used in experiments.
@@ -117,5 +117,6 @@ pip install scikit-learn numpy scipy networkx matplotlib pandas
 ```
 
 ## Contact & Citation
+
 
 If you use this code, please cite the CPALF work (when published) and include the project README in your experiments. For questions, open an issue on the project repository.
