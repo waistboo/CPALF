@@ -554,7 +554,7 @@ def split_dataset(data_list, split_type="simple", train_ratio=0.7):
 
     return train_ids, test_ids
 
-def random_test(budget, ndata, sortedCluster, real_labels, num_iterations, n_class, alpha, graph, tau):
+def train_and_evaluate(budget, ndata, sortedCluster, real_labels, num_iterations, n_class, alpha, graph, tau):
     """
     Run incremental training and testing loop.
     """
@@ -715,7 +715,7 @@ def main():
         np.random.seed(experiment_seed)
         torch.manual_seed(experiment_seed)
 
-        accuracy, accuracy_results = random_test(batch_size, data, n_sortedCluster,
+        accuracy, accuracy_results = train_and_evaluate(batch_size, data, n_sortedCluster,
                                                  real_labels, num_iterations=num_iterations, n_class=n_class,
                                                  alpha=alpha, graph=info_graph, tau=threshold)
         print(f"Final Top-k accuracy with threshold {threshold}, alpha {alpha}: {accuracy}")
@@ -723,4 +723,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
