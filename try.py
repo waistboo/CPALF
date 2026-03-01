@@ -81,8 +81,27 @@ def train_GCN(model, data, lbl_labels, epochs=50, optimizer=None):
     model.train()
     num_nodes = data.num_nodes
     labels_tensor = -1 * torch.ones(num_nodes, dtype=torch.long)
+
+    invalid_nodes = []
+    valid_nodes = []
     for node_idx, label in lbl_labels.items():
+        if label is None:
+            invalid_nodes.append(node_idx)
+            continue
+        if not isinstance(label, int):
+            try:
+                label = int(label)
+            except (ValueError, TypeError):
+                invalid_nodes.append(node_idx)
+                continue
         labels_tensor[node_idx] = label
+        valid_nodes.append(node_idx)
+
+    if invalid_nodes:
+        print(
+            f"Warning: Found {len(invalid_nodes)} invalid label nodes (None/non-integer), filtered: {invalid_nodes[:10]}...")
+    if not valid_nodes:
+        raise ValueError("No valid labeled nodes for GCN training!")
 
     for epoch in range(epochs):
         optimizer.zero_grad()
@@ -93,7 +112,6 @@ def train_GCN(model, data, lbl_labels, epochs=50, optimizer=None):
         optimizer.step()
 
     return model, optimizer
-
 
 def predict_GCN(model, data, unlbl_ids):
     """
@@ -115,14 +133,6 @@ def predict_GCN(model, data, unlbl_ids):
         gcn_conf_results[int(id)] = confidence.item()
 
     return gcn_results, gcn_conf_results
-
-
-def add_feature_noise(x, noise_std=0.01):
-    """Add small Gaussian noise to the features (with adjustable perturbation intensity)"""
-    if noise_std <= 0:
-        return x
-    noise = torch.randn_like(x) * noise_std
-    return x + noise
 
 
 def train_model_semi_sup(X, y, un_X, un_y, model, epochs=50, optimizer=None):
@@ -154,13 +164,13 @@ def train_model_semi_sup(X, y, un_X, un_y, model, epochs=50, optimizer=None):
     for epoch in range(epochs):
 
         # if has_unlabeled:
-        # un_iter = iter(dataloader_unlabeled)
-        
+        #     un_iter = iter(dataloader_unlabeled)
+
         for (batch_X, batch_y) in dataloader_labeled:
             optimizer.zero_grad()
             if has_unlabeled:
                 try:
-                    batch_un_X, batch_un_y = next(iter(dataloader_unlabeled))
+                    batch_un_X, batch_un_y = next(iter(dataloader_unlabeled), None)
                     # batch_un_X, batch_un_y = next(un_iter)
                 except StopIteration:
                     continue
@@ -168,13 +178,13 @@ def train_model_semi_sup(X, y, un_X, un_y, model, epochs=50, optimizer=None):
                     # batch_un_X, batch_un_y = next(un_iter)
                 predictions = model(batch_X)
                 loss_labeled = criterion_CE(predictions, batch_y)
+
                 # batch_un_X_noisy = add_feature_noise(batch_un_X, noise_std=0.01)
                 # predictions_un = model(batch_un_X_noisy)
                 predictions_un = model(batch_un_X)
-                # loss_unlabeled = criterion_CE(predictions_un, batch_un_y)
                 smoothed_un_labels = label_smoothing(batch_un_y, epsilon=0.1)
                 loss_unlabeled = criterion_KL(F.log_softmax(predictions_un, dim=1), smoothed_un_labels)
-                total_loss = loss_labeled + 1 * loss_unlabeled
+                total_loss = loss_labeled + loss_unlabeled
             else:
                 predictions = model(batch_X)
                 total_loss = criterion_CE(predictions, batch_y)
@@ -190,58 +200,18 @@ def label_smoothing(labels, epsilon=0.1):
     return smooth_labels
 
 
-def human_annotation_stim(data, cluster, m, reduced_data):
-    """
-    Simulate human annotation by clustering and mapping clusters to m classes.
-    Returns mapping real_labels {index: class} and representative first_sample_indices list.
-    """
-    kmeans = KMeans(n_clusters=cluster, random_state=42)
-    kmeans.fit(data)
-    labels = kmeans.labels_
-    centers = kmeans.cluster_centers_
-
-    sorted_dict = {}
-    first_samples = {}
-    for unique_val in sorted(set(labels)):
-        indices = np.where(labels == unique_val)[0]
-        distances = np.linalg.norm(data[indices] - centers[unique_val], axis=1)
-        sorted_indices = indices[np.argsort(distances)]
-        sorted_dict[unique_val] = sorted_indices.tolist()
-
-    real_rank = {}
-    favorite = 0
-    for i in range(len(sorted_dict)):
-        for j in range(len(sorted_dict[i])):
-            real_rank[sorted_dict[i][j]] = favorite
-            favorite += 1
-    rank_keys = list(real_rank.keys())
-
-    n = len(real_rank)
-    part_size = n // m
-    real_labels = {}
-    for i in range(m):
-        start_index = i * part_size
-        if i == m - 1:
-            end_index = n
-        else:
-            end_index = start_index + part_size
-        for j in range(start_index, end_index):
-            mode_id = rank_keys[j]
-            real_labels[mode_id] = i
-            if i not in first_samples:
-                first_samples[i] = mode_id
-
-    first_sample_indices = [first_samples[i] for i in range(m)]
-    return real_labels, first_sample_indices
-
-
 def labels_annotation(ids, real_labels):
     """
     Return a dict of {id: label} for the provided ids, using real_labels mapping.
     """
     labeled_samples = {}
     for current_id in ids:
-        labeled_samples[current_id] = real_labels.get(current_id, None)
+        label = real_labels.get(current_id)
+        # Only keep non-None and integer labels
+        if label is not None and isinstance(label, int):
+            labeled_samples[current_id] = label
+        else:
+            print(f"Warning: Invalid label for node {current_id} (value: {label}), skipped")
     return labeled_samples
 
 
@@ -549,8 +519,42 @@ def compute_ece(true_labels, probs, n_bins=10):
             ece += np.abs(acc - conf) * np.sum(mask) / len(probs)
     return ece
 
+def split_dataset(data_list, split_type="simple", train_ratio=0.7):
+    if isinstance(data_list, dict):
+        data_keys = list(data_list.keys())
+    elif isinstance(data_list, list):
+        data_keys = data_list.copy()
+    else:
+        raise TypeError("data_list must be（list）or（dict）type")
 
-def random_test(cluster, budget, ndata, sortedCluster, frequent_patterns, num_iterations, n_class, alpha, graph, tau):
+    total_len = len(data_keys)
+    if total_len == 0:
+        raise ValueError("The dataset to be split cannot be empty")
+
+    # Simple ratio split
+    if split_type == "simple":
+        # Verify training set ratio range
+        if not (0 < train_ratio < 1):
+            raise ValueError("train_ratio must be a float between 0 and 1")
+
+        split_index = int(total_len * train_ratio)
+        train_ids = data_keys[:split_index]
+        test_ids = data_keys[split_index:]
+
+    elif split_type == "segmented":
+        train_part1_end = int(total_len * 0.4)
+        test_part_start = train_part1_end
+        test_part_end = int(total_len * 0.7)
+
+        train_ids = data_keys[:train_part1_end] + data_keys[test_part_end:]
+        test_ids = data_keys[test_part_start:test_part_end]
+
+    else:
+        raise ValueError("split_type only is 'simple' or 'segmented'")
+
+    return train_ids, test_ids
+
+def random_test(budget, ndata, sortedCluster, real_labels, num_iterations, n_class, alpha, graph, tau):
     """
     Run incremental training and testing loop.
     """
@@ -562,11 +566,8 @@ def random_test(cluster, budget, ndata, sortedCluster, frequent_patterns, num_it
     data_scaled = StandardScaler().fit_transform(data)
     reduced_data = TSNE(n_components=2).fit_transform(data_scaled)
 
-    real_labels, first_sample_indices = human_annotation_stim(data, cluster=cluster, m=m, reduced_data=reduced_data)
-
-    split_index = int(len(n_sortedCluster) * 0.7)
-    train_ids = list(n_sortedCluster.keys())[:split_index]
-    test_ids = list(n_sortedCluster.keys())[split_index:]
+    train_ids, test_ids = split_dataset(n_sortedCluster, split_type="simple", train_ratio=0.7)
+    # train_ids, test_ids = split_dataset(n_sortedCluster, split_type="segmented", train_ratio=0.7)  # Aviation dataset
     train_sortedrepre = {k: n_sortedCluster[k] for k in n_sortedCluster if k in train_ids}
 
     lbl_ids = list(train_sortedrepre.keys())[:budget]
@@ -635,6 +636,32 @@ def random_test(cluster, budget, ndata, sortedCluster, frequent_patterns, num_it
     return accuracy_test, accuracy_results
 
 
+def read_real_labels_txt(file_path):
+    real_labels = {}
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    idx_str, label_str = line.split(": ", 1)
+                    node_idx = int(idx_str)
+                    label = int(label_str)
+                    real_labels[node_idx] = label
+                except ValueError as e:
+                    print(f"Warning: Format error on line {line_num}, skipping: {line} | Error: {e}")
+                except Exception as e:
+                    print(f"Warning: Failed to process line {line_num}, skipping: {line} | Error: {e}")
+        return real_labels
+    except FileNotFoundError:
+        print(f"Error: Label file {file_path} not found!")
+        return {}
+    except Exception as e:
+        print(f"Failed to read label file: {e}")
+        return {}
+
+
 def assign_ppl(data, model, optimizer, unlbl_ids, lbl_labels, real_labels, reduced_data):
     """
     Train GCN and use label propagation (nearest labeled example) as pseudo labels (PPL).
@@ -655,13 +682,24 @@ def load_data(filepath):
 
 
 def main():
-    datasets = ['Skitter']
+    # datasets = ['twitter', 'twitch', 'skitter', 'mico', 'dblp']
+    datasets = ['dblp']
+    # datasets = ['Aviation']
+
+    dataset_info = {
+        'twitter': {'threshold': 0.947},
+        'twitch': {'threshold': 0.95},
+        'skitter': {'threshold': 0.954},
+        'mico': {'threshold': 0.959},
+        'dblp': {'threshold': 0.95},
+        'Aviation': {'threshold': 0.955}
+    }
 
     accuracy_all_results = []
     for dataset in datasets:
-        info_graph = torch.load(f"datasets/{dataset}/{dataset}.pt")
-        filepath = f"datasets/{dataset}/{dataset}.pkl"
-        frequent_patterns = f"datasets/{dataset}.txt"
+        info_graph = torch.load(f"datasets/{dataset}.pt")
+        filepath = f"datasets/{dataset}.pkl"
+        real_labels = read_real_labels_txt(f"datasets/real_labels/{dataset}_real_labels.txt")
         print(f"Processing file: {filepath}")
 
         data, sortedCluster = load_data(filepath)
@@ -671,28 +709,18 @@ def main():
         n_class = 5
         alpha = 0.6
         batch_size = 5
-        thresholds = [round(0.941 + i * 0.001, 3) for i in range(20)]
-        # thresholds = [0.954]
+        threshold = dataset_info[dataset]['threshold']
 
-        for n_clusters in range(1, 16):
-            print(f"Number of clusters: {n_clusters}")
-            for threshold in thresholds:
-                experiment_seed = 0
-                np.random.seed(experiment_seed)
-                torch.manual_seed(experiment_seed)
+        experiment_seed = 0
+        np.random.seed(experiment_seed)
+        torch.manual_seed(experiment_seed)
 
-                accuracy, accuracy_results = random_test(n_clusters, batch_size, data, n_sortedCluster,
-                                                         frequent_patterns,
-                                                         num_iterations=num_iterations, n_class=n_class,
-                                                         alpha=alpha,
-                                                         graph=info_graph, tau=threshold)
-                print(f"Final Top-k accuracy with threshold {threshold}, alpha {alpha}: {accuracy}")
-                accuracy_all_results.extend(accuracy_results)
+        accuracy, accuracy_results = random_test(batch_size, data, n_sortedCluster,
+                                                 real_labels, num_iterations=num_iterations, n_class=n_class,
+                                                 alpha=alpha, graph=info_graph, tau=threshold)
+        print(f"Final Top-k accuracy with threshold {threshold}, alpha {alpha}: {accuracy}")
+        accuracy_all_results.extend(accuracy_results)
 
 
 if __name__ == "__main__":
-
     main()
-
-
-
