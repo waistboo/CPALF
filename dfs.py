@@ -163,9 +163,9 @@ def main(input_file, output_file, encoding_file):
 
 
 if __name__ == '__main__':
-    datasets = ['Aviation']
+    datasets = ['dblp']
     for dataset in datasets:
         input_file = f"datasets/pattern/{dataset}.txt"
         output_file = f"datasets/{dataset}.csv"
-        encoding_file = "datasets/Initial Graph/Aviation-l.txt"
+        encoding_file = f"datasets/Initial Graph/{dataset}-l.txt"
         main(input_file, output_file, encoding_file)
